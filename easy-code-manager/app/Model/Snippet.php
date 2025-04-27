@@ -348,21 +348,42 @@ class Snippet
         $fileContent = explode('// <Internal Doc Start>', $fileContent);
 
         if (count($fileContent) < 2) {
-
             if ($codeOnly) {
                 return '';
             }
-
             return [null, null];
         }
 
-        $fileContent = explode('// <Internal Doc End> ?>' . PHP_EOL, $fileContent[1]);
-        $code = $fileContent[1];
+        // Try different possible formats of the end marker
+        $endMarkers = [
+            '// <Internal Doc End> ?>' . PHP_EOL,
+            '// <Internal Doc End> ?>',
+            '<?php if (!defined("ABSPATH")) { return;} // <Internal Doc End> ?>' . PHP_EOL,
+            '<?php if (!defined("ABSPATH")) { return;} // <Internal Doc End> ?>'
+        ];
+
+        $docBlock = null;
+        $code = null;
+
+        foreach ($endMarkers as $marker) {
+            $parts = explode($marker, $fileContent[1]);
+            if (count($parts) > 1) {
+                $docBlock = $parts[0];
+                $code = $parts[1];
+                break;
+            }
+        }
+
+        if (!$docBlock || !$code) {
+            if ($codeOnly) {
+                return '';
+            }
+            return [null, null];
+        }
+
         if ($codeOnly) {
             return $code;
         }
-        $docBlock = $fileContent[0];
-
 
         $docBlock = explode('*', $docBlock);
         // Explode by : and get the key and value

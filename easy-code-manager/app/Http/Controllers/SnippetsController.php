@@ -29,9 +29,18 @@ class SnippetsController
             $page = 1;
         }
 
-        return [
-            'snippets' => $snippetModel->getIndexedSnippets($perPage, $page)
+        $data = [
+            'snippets' => $snippetModel->getIndexedSnippets($perPage, $page),
+            'time' => current_time('mysql')
         ];
+
+        if($page == 1) {
+            [$tags, $groups] = (new Snippet())->getAllSnippetTagsGroups();
+            $data['tags'] = $tags;
+            $data['groups'] = $groups;
+        }
+
+        return $data;
     }
 
     public static function findSnippet(\WP_REST_Request $request)
@@ -85,7 +94,6 @@ class SnippetsController
         $meta['status'] = 'draft';
 
         // Check if the php snippet $code is valid or not by validating it
-
         if ($meta['type'] == 'PHP') {
             // Check if the code starts with <?php
             if (preg_match('/^<\?php/', $code)) {
@@ -281,7 +289,7 @@ class SnippetsController
         ];
     }
 
-    private static function validateMeta($meta)
+    public static function validateMeta($meta)
     {
         $required = ['name', 'status', 'type', 'run_at'];
 
