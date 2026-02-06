@@ -136,11 +136,29 @@ class CodeRunner
                     break;
                 case 'css':
                     $runAt = $this->get($snippet, 'run_at', 'wp_head');
+
+                    $isBlockStyle = $this->get($snippet, 'load_in_block_editor', '') === 'yes';
+                    if ($isBlockStyle) {
+                        add_filter('block_editor_settings_all', function ($settings) use ($snippet, $file) {
+                            $code = $this->parseBlock(file_get_contents($file), true);
+                            if ($code) {
+                                $settings['styles'][] = array(
+                                    'css'            => $code,
+                                    '__unstableType' => 'plugin',
+                                    'source'         => 'easy_code_manager'
+                                );
+                            }
+                            return $settings;
+                        }, $this->get($snippet, 'priority', 10));
+                    }
+
                     if (($runAt == 'everywehere' && is_admin()) || $runAt == 'admin_head') {
                         $runAt = 'admin_head';
                     } else {
                         $runAt = 'wp_head';
                     }
+
+                    $isAdminCss = ($runAt == 'admin_head');
 
                     $loadUrl = '';
                     if ($this->get($snippet, 'load_as_file') == 'yes') {
@@ -149,6 +167,17 @@ class CodeRunner
                         if ($loadUrl) {
                             $runAt = ($runAt == 'admin_head') ? 'admin_enqueue_scripts' : 'wp_enqueue_scripts';
                         }
+                    }
+
+                    if ($isAdminCss) {
+                        add_action('enqueue_block_editor_assets', function () use ($file, $snippet, $conditionalClass, $loadUrl) {
+                            if (!$conditionalClass->evaluate($snippet['condition'])) {
+                                return;
+                            }
+
+                            $code = $this->parseBlock(file_get_contents($file), true);
+                            wp_add_inline_style('wp-edit-blocks', $code);
+                        });
                     }
 
                     add_action($runAt, function () use ($file, $snippet, $conditionalClass, $loadUrl) {

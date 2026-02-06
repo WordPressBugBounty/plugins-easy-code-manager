@@ -10,6 +10,9 @@ class SnippetsController
 {
     public static function getSnippets(\WP_REST_Request $request)
     {
+
+        Helper::cacheSnippetIndex('', true);
+
         $snippetModel = new Snippet([
             'search'     => sanitize_text_field($request->get_param('search')),
             'type'       => sanitize_text_field($request->get_param('type')),
@@ -31,10 +34,10 @@ class SnippetsController
 
         $data = [
             'snippets' => $snippetModel->getIndexedSnippets($perPage, $page),
-            'time' => current_time('mysql')
+            'time'     => current_time('mysql')
         ];
 
-        if($page == 1) {
+        if ($page == 1) {
             [$tags, $groups] = (new Snippet())->getAllSnippetTagsGroups();
             $data['tags'] = $tags;
             $data['groups'] = $groups;
@@ -85,64 +88,14 @@ class SnippetsController
 
         unset($meta['code']);
 
-        $metaValidated = self::validateMeta($meta);
+        $snippet = Helper::createSnippet([
+            'meta' => $meta,
+            'code' => $code
+        ]);
 
-        if (is_wp_error($metaValidated)) {
-            return $metaValidated;
+        if (is_wp_error($snippet)) {
+            return $snippet;
         }
-
-        $meta['status'] = 'draft';
-
-        // Check if the php snippet $code is valid or not by validating it
-        if ($meta['type'] == 'PHP') {
-            // Check if the code starts with <?php
-            if (preg_match('/^<\?php/', $code)) {
-                return new \WP_Error('invalid_code', 'Please remove <?php from the beginning of the code', [
-                    'code' => 'Please remove <?php from the beginning of the code'
-                ]);
-            }
-            $code = rtrim($code, '?>');
-            $code = '<?php' . PHP_EOL . $code;
-        } else if ($meta['type'] == 'php_content') {
-            $code = apply_filters('fluent_snippets/sanitize_mixed_content', $code, $meta);
-            if (is_wp_error($code)) {
-                return $code;
-            }
-        }
-
-        // Validate the code
-        $validated = Helper::validateCode($meta['type'], $code);
-
-        if (is_wp_error($validated)) {
-
-            $message = $validated->get_error_message();
-            $additionalData = $validated->get_error_data();
-
-            if ($lineNumber = Arr::get($additionalData, 'line')) {
-                if (is_numeric($lineNumber) && $lineNumber > 1) {
-                    $lineNumber = $lineNumber - 1;
-                    $additionalData['line'] = $lineNumber;
-                }
-
-                $message .= ' on line ' . $lineNumber;
-            }
-
-            return new \WP_Error('code', $message, [
-                'code'             => $message,
-                'code_explanation' => $additionalData
-            ]);
-        }
-
-        $settings = Helper::getConfigSettings();
-
-        if ($settings['auto_publish'] == 'yes') {
-            $meta['status'] = 'published';
-        }
-
-        // check if the $code which is a php snippet is valid or not
-        $snippetModel = new Snippet();
-        $snippet = $snippetModel->createSnippet($code, $meta);
-        do_action('fluent_snippets/snippet_created', $snippet);
 
         return [
             'snippet' => $snippet,
@@ -161,70 +114,17 @@ class SnippetsController
         $code = $meta['code'];
         unset($meta['code']);
 
-        $metaValidated = self::validateMeta($meta);
 
-        if (is_wp_error($metaValidated)) {
-            return $metaValidated;
+        $snippet = Helper::updateSnippet([
+            'meta'       => $meta,
+            'code'       => $code,
+            'file_name'  => $fileName,
+            'reactivate' => $request->get_param('reactivate')
+        ]);
+
+        if (is_wp_error($snippet)) {
+            return $snippet;
         }
-
-        if ($meta['type'] == 'PHP') {
-            // Check if the code starts with <?php
-            if (preg_match('/^<\?php/', $code)) {
-                return new \WP_Error('invalid_code', 'Please remove <?php from the beginning of the code', [
-                    'code' => 'Please remove <?php from the beginning of the code'
-                ]);
-            }
-
-            $code = rtrim($code, '?>');
-            $code = '<?php' . PHP_EOL . $code;
-        } else if ($meta['type'] == 'php_content') {
-            $code = apply_filters('fluent_snippets/sanitize_mixed_content', $code, $meta);
-            if (is_wp_error($code)) {
-                return $code;
-            }
-        } else {
-            $sanitizedCode = Helper::escCssJs($code);
-            if ($sanitizedCode !== $code) {
-                return new \WP_Error('invalid_code', 'Please remove any any style or script tag from the code');
-            }
-        }
-
-        // Validate the code
-        $validated = Helper::validateCode($meta['type'], $code);
-
-        if (is_wp_error($validated)) {
-
-            $message = $validated->get_error_message();
-            $additionalData = $validated->get_error_data();
-
-            if ($lineNumber = Arr::get($additionalData, 'line')) {
-                if (is_numeric($lineNumber) && $lineNumber > 1) {
-                    $lineNumber = $lineNumber - 1;
-                    $additionalData['line'] = $lineNumber;
-                }
-
-                $message .= ' on line ' . $lineNumber;
-            }
-
-            return new \WP_Error('code', $message, [
-                'code'             => $message,
-                'code_explanation' => $additionalData
-            ]);
-        }
-
-        // check if the $code which is a php snippet is valid or not
-        $snippetModel = new Snippet();
-        $snippet = $snippetModel->updateSnippet($fileName, $code, $meta);
-
-        if ($request->get_param('reactivate')) {
-            $config = Helper::getIndexedConfig();
-            if (isset($config['error_files'][$fileName])) {
-                unset($config['error_files'][$fileName]);
-            }
-            Helper::saveIndexedConfig($config);
-        }
-
-        do_action('fluent_snippets/snippet_updated', $snippet);
 
         return [
             'snippet' => $snippet,
